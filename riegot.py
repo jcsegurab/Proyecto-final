@@ -73,30 +73,27 @@ def leer_voltaje():
 #FUNCION DE DEFINICIÓN DE UMBRALES DE NIVEL Y HUMEDAD PARA ACTIVAR BOMBA def control_bomba
 def control_bomba(distancia, voltaje):
 
-    if distancia < NIVEL_MINIMO:
+    if distancia < NIVEL_MINIMO and voltaje >= V_SECO:
 
-           activacion = 0
+           activacion = GPIO.LOW
            return activacion
 
 
     elif distancia > NIVEL_MINIMO:
 
-           activacion = 1
-           return activacion
-
-    elif voltaje >= V_SECO:
-           activacion = 0
+           activacion = GPIO.HIGH
            return activacion
            
     elif voltaje <= V_HUMEDO:
-           activacion = 1
+           activacion = GPIO.HIGH
            return activacion
 
 #FUNCIÓN PARA ACTIVACION O DESACTIVACION RELE def control_rele
 def control_rele(activacion):
 
-    if activacion is True:
-        estado = True
+    if activacion is GPIO.HIGH:
+        estado = GPIO.HIGH
+        GPIO.output(RELE, estado)
     else:
         estado = False
         GPIO.output(RELE, estado)
