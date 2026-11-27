@@ -1,0 +1,596 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard - Sistema de Riego</title>
+
+<!-- Libreria para graficas -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #101827;
+    color: white;
+}
+
+header {
+    background: #17243a;
+    padding: 22px;
+    text-align: center;
+    border-bottom: 2px solid #263a55;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 25px;
+}
+
+header p {
+    color: #9eafc5;
+    margin-bottom: 0;
+}
+
+.contenedor {
+    max-width: 1200px;
+    margin: auto;
+    padding: 25px;
+}
+
+.estado-conexion {
+    text-align: right;
+    margin-bottom: 20px;
+    color: #20d69a;
+    font-size: 14px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+.tarjeta {
+    background: #1c2a40;
+    padding: 25px;
+    border-radius: 12px;
+    text-align: center;
+    border: 1px solid #2d405c;
+}
+
+.tarjeta h2 {
+    font-size: 16px;
+    color: #aabbd0;
+    margin-top: 0;
+}
+
+.valor {
+    font-size: 42px;
+    font-weight: bold;
+    margin: 15px 0;
+}
+
+.humedad {
+    color: #36a9ff;
+}
+
+.nivel {
+    color: #19d5a0;
+}
+
+.unidad {
+    color: #9eafc5;
+    font-size: 14px;
+}
+
+.estado {
+    display: inline-block;
+    padding: 12px 25px;
+    border-radius: 8px;
+    font-weight: bold;
+    margin-top: 12px;
+    min-width: 150px;
+}
+
+.encendido {
+    background: #0b704b;
+    color: white;
+}
+
+.apagado {
+    background: #a52e3c;
+    color: white;
+}
+
+.cerrado {
+    background: #0b704b;
+    color: white;
+}
+
+.abierto {
+    background: #a52e3c;
+    color: white;
+}
+
+.desconocido {
+    background: #566174;
+    color: white;
+}
+
+.grafica {
+    margin-top: 25px;
+    background: #1c2a40;
+    padding: 25px;
+    border-radius: 12px;
+    border: 1px solid #2d405c;
+}
+
+.grafica h2 {
+    font-size: 18px;
+}
+
+canvas {
+    max-height: 350px;
+}
+
+.informacion {
+    margin-top: 20px;
+    padding: 15px;
+    background: #1c2a40;
+    border-radius: 10px;
+    color: #aabbd0;
+    font-size: 13px;
+}
+
+@media(max-width: 650px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .valor {
+        font-size: 35px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1> SISTEMA DE RIEGO AUTOMATIZADO </h1>
+    <p>Monitoreo y supervisión mediante Raspberry Pi 3</p>
+</header>
+
+<div class="contenedor">
+
+    <div class="estado-conexion" id="conexion">
+        ● Conectando con Supabase...
+    </div>
+
+    <!-- DISPLAYS DE VARIABLES -->
+
+    <div class="grid">
+
+        <div class="tarjeta">
+            <h2>HUMEDAD DEL SUELO</h2>
+            <div class="valor humedad" id="humedad">--</div>
+            <div class="unidad">Voltios (V)</div>
+        </div>
+
+        <div class="tarjeta">
+            <h2>NIVEL DEL TANQUE</h2>
+            <div class="valor nivel" id="nivel">--</div>
+            <div class="unidad">Distancia (cm)</div>
+        </div>
+
+        <!-- ESTADO DE LA BOMBA -->
+
+        <div class="tarjeta">
+            <h2>ESTADO DE LA BOMBA</h2>
+            <div class="estado desconocido" id="bomba">
+                SIN DATOS
+            </div>
+            <p id="bombaGPIO">GPIO: --</p>
+        </div>
+
+        <!-- ESTADO DEL RELE -->
+
+        <div class="tarjeta">
+            <h2>ESTADO DEL RELÉ</h2>
+            <div class="estado desconocido" id="rele">
+                SIN DATOS
+            </div>
+            <p id="releGPIO">GPIO: --</p>
+        </div>
+
+    </div>
+
+    <!-- GRAFICA -->
+
+    <div class="grafica">
+        <h2>HISTÓRICO DE HUMEDAD Y NIVEL</h2>
+        <canvas id="graficaSensores"></canvas>
+    </div>
+
+    <div class="informacion">
+        <p>Última actualización: <span id="fecha">--</span></p>
+        <p>Fuente de datos: Supabase - sensores_riego</p>
+        <p>Actualización automática cada 2 segundos.</p>
+    </div>
+
+</div>
+
+<script>
+
+// ==========================================
+// CONFIGURACION DE SUPABASE
+// ==========================================
+
+const SUPABASE_URL =
+"https://pkvdijnnoaabuwulovdk.supabase.co";
+
+const API_KEY =
+"sb_publishable_z2dqFMhGY8I8fZMd03jucA_CZgajW2f";
+
+const TABLA = "sensores_riego";
+
+const ENDPOINT =
+`${SUPABASE_URL}/rest/v1/${TABLA}`;
+
+// ==========================================
+// CONFIGURACION DE LA GRAFICA
+// ==========================================
+
+const ctx = document.getElementById("graficaSensores");
+
+const grafica = new Chart(ctx, {
+
+    type: "line",
+
+    data: {
+
+        labels: [],
+
+        datasets: [
+
+            {
+                label: "Humedad (V)",
+                data: [],
+                borderColor: "#36a9ff",
+                backgroundColor: "rgba(54,169,255,0.15)",
+                borderWidth: 2,
+                tension: 0.3,
+                yAxisID: "y"
+            },
+
+            {
+                label: "Nivel (cm)",
+                data: [],
+                borderColor: "#19d5a0",
+                backgroundColor: "rgba(25,213,160,0.15)",
+                borderWidth: 2,
+                tension: 0.3,
+                yAxisID: "y1"
+            }
+
+        ]
+
+    },
+
+    options: {
+
+        responsive: true,
+        maintainAspectRatio: true,
+
+        interaction: {
+            intersect: false,
+            mode: "index"
+        },
+
+        plugins: {
+            legend: {
+                labels: {
+                    color: "white"
+                }
+            }
+        },
+
+        scales: {
+
+            x: {
+                ticks: {
+                    color: "#aabbd0"
+                },
+                grid: {
+                    color: "#34445c"
+                }
+            },
+
+            y: {
+                type: "linear",
+                position: "left",
+                title: {
+                    display: true,
+                    text: "Humedad (V)",
+                    color: "#36a9ff"
+                },
+                ticks: {
+                    color: "#36a9ff"
+                },
+                grid: {
+                    color: "#34445c"
+                }
+            },
+
+            y1: {
+                type: "linear",
+                position: "right",
+                title: {
+                    display: true,
+                    text: "Nivel (cm)",
+                    color: "#19d5a0"
+                },
+                ticks: {
+                    color: "#19d5a0"
+                },
+                grid: {
+                    drawOnChartArea: false
+                }
+            }
+
+        }
+
+    }
+
+});
+
+// ==========================================
+// FUNCION PARA MOSTRAR ESTADOS
+// ==========================================
+
+function mostrarEstado(elemento, texto, clase) {
+
+    const indicador = document.getElementById(elemento);
+
+    indicador.textContent = texto;
+
+    indicador.className = "estado " + clase;
+
+}
+
+// ==========================================
+// INTERPRETAR ESTADOS GPIO
+// ==========================================
+
+// En este programa:
+// GPIO.LOW  = 0
+// GPIO.HIGH = 1
+//
+// Bomba LOW = encendida
+// Bomba HIGH = apagada
+//
+// Rele LOW = cerrado
+// Rele HIGH = abierto
+
+function interpretarGPIO(valor) {
+
+    if (valor === null || valor === undefined) {
+        return null;
+    }
+
+    if (valor === true) return 1;
+    if (valor === false) return 0;
+
+    const numero = Number(valor);
+
+    if (numero === 0 || numero === 1) {
+        return numero;
+    }
+
+    return null;
+}
+
+// ==========================================
+// CONSULTAR DATOS DE SUPABASE
+// ==========================================
+
+async function obtenerDatos() {
+
+    try {
+
+        const respuesta = await fetch(
+
+    `${ENDPOINT}?select=id,humedad,nivel,bomba,rele,created_at&id=not.is.null&humedad=not.is.null&nivel=not.is.null&bomba=not.is.null&rele=not.is.null&order=id.desc&limit=30`,
+
+    {
+        method: "GET",
+
+        cache: "no-store",
+
+        headers: {
+            "apikey": API_KEY,
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+        }
+    }
+);
+
+       if (!respuesta.ok) {
+
+            const error = await respuesta.text();
+
+            throw new Error(
+                `HTTP ${respuesta.status}: ${error}`
+            );
+
+        }
+
+        const datos = await respuesta.json();
+
+        console.log("Datos recibidos:", datos);
+
+        if (!Array.isArray(datos) || datos.length === 0) {
+
+            throw new Error(
+                "No existen mediciones válidas en Supabase"
+            );
+
+        }
+
+        // Ultima medicion recibida
+        const ultimo = datos[0];
+
+        // =================================
+        // ACTUALIZAR DISPLAY DE HUMEDAD
+        // =================================
+
+        document.getElementById("humedad").textContent =
+            Number(ultimo.humedad).toFixed(2);
+
+        // =================================
+        // ACTUALIZAR DISPLAY DE NIVEL
+        // =================================
+
+        document.getElementById("nivel").textContent =
+            Number(ultimo.nivel).toFixed(2);
+
+        // =================================
+        // ESTADO DE LA BOMBA
+        // =================================
+
+        const estadoBomba = Number(ultimo.bomba);
+
+        if (estadoBomba === 0) {
+
+            mostrarEstado(
+                "bomba",
+                "ENCENDIDA",
+                "encendido"
+            );
+
+            document.getElementById("bombaGPIO").textContent =
+                "GPIO: LOW (0)";
+
+        }
+
+        else if (estadoBomba === 1) {
+
+            mostrarEstado(
+                "bomba",
+                "APAGADA",
+                "apagado"
+            );
+
+            document.getElementById("bombaGPIO").textContent =
+                "GPIO: HIGH (1)";
+
+        }
+
+        // =================================
+        // ESTADO DEL RELE
+        // =================================
+
+        const estadoRele = Number(ultimo.rele);
+
+        if (estadoRele === 0) {
+
+            mostrarEstado(
+                "rele",
+                "CERRADO",
+                "cerrado"
+            );
+
+            document.getElementById("releGPIO").textContent =
+                "GPIO: LOW (0)";
+
+        }
+
+        else if (estadoRele === 1) {
+
+            mostrarEstado(
+                "rele",
+                "ABIERTO",
+                "abierto"
+            );
+
+            document.getElementById("releGPIO").textContent =
+                "GPIO: HIGH (1)";
+
+        }
+
+        // =================================
+        // ACTUALIZAR GRAFICA
+        // =================================
+
+        const registros = datos.slice().reverse();
+
+        grafica.data.labels = registros.map(registro => {
+
+            return registro.created_at
+                ? new Date(registro.created_at)
+                    .toLocaleTimeString()
+                : "ID " + registro.id;
+
+        });
+
+        grafica.data.datasets[0].data =
+            registros.map(registro =>
+                Number(registro.humedad)
+            );
+
+        grafica.data.datasets[1].data =
+            registros.map(registro =>
+                Number(registro.nivel)
+            );
+
+        grafica.update();
+
+        // =================================
+        // ULTIMA ACTUALIZACION
+        // =================================
+
+        document.getElementById("fecha").textContent =
+            ultimo.created_at
+                ? new Date(ultimo.created_at).toLocaleString()
+                : "Sin fecha";
+
+        conexion.textContent =
+            "● Conectado con Supabase | ID: " + ultimo.id;
+
+        conexion.style.color = "#20d69a";
+
+    }
+
+    catch(error) {
+
+        console.error("Error consultando Supabase:", error);
+
+        conexion.textContent =
+            "● " + error.message;
+
+        conexion.style.color = "#ff6474";
+
+    }
+
+}
+
+// ==========================================
+// ACTUALIZACION AUTOMATICA
+// ==========================================
+
+obtenerDatos();
+
+setInterval(obtenerDatos, 2000);
+
+</script>
+
+</body>
+</html>
+
